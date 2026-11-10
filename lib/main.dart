@@ -117,12 +117,12 @@ class _ShopState extends State<_Shop> {
             mainAxisSize: MainAxisSize.min,
             children: [
               SelectableText(message),
-              const SizedBox(height: 16),
-              Text(
-                hasStorePhone
-                    ? 'Envía el mensaje desde WhatsApp para consultar con la tienda.'
-                    : 'Configura el WhatsApp de la tienda para abrir el chat. También puedes copiar el pedido.',
-              ),
+              if (hasStorePhone) ...[
+                const SizedBox(height: 16),
+                const Text(
+                  'Envía el mensaje desde WhatsApp para consultar con la tienda.',
+                ),
+              ],
             ],
           ),
         ),

@@ -23,6 +23,7 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Copiar pedido'), findsOneWidget);
+    expect(find.textContaining('Configura el WhatsApp'), findsNothing);
   });
 
   testWidgets('Buscar muestra productos agotados sin permitir agregarlos', (

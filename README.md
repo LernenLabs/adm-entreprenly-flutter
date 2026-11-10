@@ -2,6 +2,8 @@
 
 Versión inicial para el AV2. Los clientes finales pueden buscar productos de un minimarket de ejemplo, armar un carrito y preparar un mensaje para consultar el pedido por WhatsApp.
 
+Consulta el [roadmap del AV2](ROADMAP.md) para ver el alcance del 30 % y las siguientes entregas.
+
 ## Ejecutar la demo
 
 Requiere Flutter con Dart 3.13.7 o posterior en la serie 3.x.
