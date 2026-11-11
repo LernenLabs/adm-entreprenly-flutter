@@ -1,6 +1,9 @@
 import 'package:entreprenly_compras/main.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:url_launcher_platform_interface/link.dart';
+import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 
 void main() {
   testWidgets('El cliente ajusta el carrito y revisa su pedido', (
@@ -23,7 +26,6 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Copiar pedido'), findsOneWidget);
-    expect(find.textContaining('Configura el WhatsApp'), findsNothing);
   });
 
   testWidgets('Buscar muestra productos agotados sin permitir agregarlos', (

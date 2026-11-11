@@ -49,6 +49,12 @@ String _normalize(String text) {
   return lower.split('').map((char) => _accents[char] ?? char).join();
 }
 
+/// Cantidad con su unidad para el mensaje: «2 kg», «1 unidad», «3 unidades».
+String _quantityLabel(_Product product, int quantity) {
+  if (product.unit == 'kg') return '$quantity kg';
+  return '$quantity ${quantity == 1 ? 'unidad' : 'unidades'}';
+}
+
 class _Product {
   const _Product(this.name, this.unit, this.price, this.stock, this.icon);
 
