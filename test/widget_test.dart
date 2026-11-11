@@ -85,7 +85,7 @@ void main() {
 
     expect(find.textContaining('No encontramos productos'), findsNothing);
     expect(find.text('Arroz a granel'), findsOneWidget);
-    expect(find.text('Azúcar rubia'), findsOneWidget);
+    expect(find.text('Leche evaporada'), findsOneWidget);
   });
 
   testWidgets('Un producto agotado sigue desactivado al buscarlo', (
@@ -114,6 +114,88 @@ void main() {
     expect(find.textContaining('Agotado'), findsNothing);
     expect(_addButton(tester, 'Azúcar rubia').onPressed, isNotNull);
   });
+
+  testWidgets(
+    'Al combinar 2 kg de arroz y 1 unidad de leche muestra subtotales, unidades y total de S/ 13.80',
+    (tester) async {
+      await tester.pumpWidget(const MyApp());
+
+      await tester.tap(find.byTooltip('Agregar Arroz a granel'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Agregar Arroz a granel'));
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.byTooltip('Agregar Leche evaporada'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Agregar Leche evaporada'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Carrito'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('2 kg'), findsOneWidget);
+      expect(find.text('1 unidad'), findsOneWidget);
+
+      expect(find.text('S/ 9.60'), findsOneWidget);
+      expect(find.text('S/ 4.20'), findsOneWidget);
+      expect(find.text('S/ 13.80'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'Quitar la última unidad de un producto lo elimina del carrito',
+    (tester) async {
+      await tester.pumpWidget(const MyApp());
+
+      await tester.tap(find.byTooltip('Agregar Arroz a granel'));
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.byTooltip('Agregar Leche evaporada'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Agregar Leche evaporada'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Carrito'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Leche evaporada'), findsOneWidget);
+      expect(find.text('1 unidad'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Quitar Leche evaporada'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Leche evaporada'), findsNothing);
+      expect(find.text('1 unidad'), findsNothing);
+      expect(find.text('Arroz a granel'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Quitar Arroz a granel'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Tu carrito está vacío'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'El botón de agregar se desactiva al llegar al stock de muestra',
+    (tester) async {
+      await tester.pumpWidget(const MyApp());
+
+      for (var i = 0; i < 8; i++) {
+        await tester.tap(find.byTooltip('Agregar Arroz a granel'));
+        await tester.pumpAndSettle();
+      }
+
+      final addButton = _addButton(tester, 'Arroz a granel');
+      expect(addButton.onPressed, isNull);
+
+      await tester.tap(find.text('Carrito'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('8 kg'), findsOneWidget);
+      final addCartButton = _addButton(tester, 'Arroz a granel');
+      expect(addCartButton.onPressed, isNull);
+    },
+  );
 }
 
 IconButton _addButton(WidgetTester tester, String name) {
