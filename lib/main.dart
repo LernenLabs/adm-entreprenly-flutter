@@ -13,6 +13,42 @@ final _validStorePhone = RegExp(r'^[1-9][0-9]{7,14}$');
 
 String _soles(int cents) => 'S/ ${(cents / 100).toStringAsFixed(2)}';
 
+const _accents = {
+  'á': 'a',
+  'à': 'a',
+  'ä': 'a',
+  'â': 'a',
+  'é': 'e',
+  'è': 'e',
+  'ë': 'e',
+  'ê': 'e',
+  'í': 'i',
+  'ì': 'i',
+  'ï': 'i',
+  'î': 'i',
+  'ó': 'o',
+  'ò': 'o',
+  'ö': 'o',
+  'ô': 'o',
+  'ú': 'u',
+  'ù': 'u',
+  'ü': 'u',
+  'û': 'u',
+  'ñ': 'n',
+};
+
+/// Texto en minúsculas, sin tildes y sin espacios sobrantes, para buscar.
+String _normalize(String text) {
+  final lower = text.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+  return lower.split('').map((char) => _accents[char] ?? char).join();
+}
+
+/// Cantidad con su unidad para el mensaje: «2 kg», «1 unidad», «3 unidades».
+String _quantityLabel(_Product product, int quantity) {
+  if (product.unit == 'kg') return '$quantity kg';
+  return '$quantity ${quantity == 1 ? 'unidad' : 'unidades'}';
+}
+
 class _Product {
   const _Product(this.name, this.unit, this.price, this.stock, this.icon);
 
@@ -97,11 +133,7 @@ class _ShopState extends State<_Shop> {
       'Hola, quisiera pedir lo siguiente:',
       '',
       for (final item in _cart.entries)
-        '- ${item.value} ${item.key.unit == 'kg'
-            ? 'kg'
-            : item.value == 1
-            ? 'unidad'
-            : 'unidades'} de ${item.key.name}',
+        '- ${_quantityLabel(item.key, item.value)} de ${item.key.name}',
       '',
       'Total estimado: ${_soles(_total)}.',
       '¿Me confirman disponibilidad y precio, por favor?',
@@ -203,9 +235,10 @@ class _ShopState extends State<_Shop> {
   }
 
   Widget _catalog(BuildContext context) {
-    final query = _search.text.trim().toLowerCase();
+    final rawQuery = _search.text.trim();
+    final query = _normalize(rawQuery);
     final matches = _products.where(
-      (product) => product.name.toLowerCase().contains(query),
+      (product) => _normalize(product.name).contains(query),
     );
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
@@ -247,9 +280,9 @@ class _ShopState extends State<_Shop> {
         ),
         const SizedBox(height: 12),
         if (matches.isEmpty)
-          const Padding(
-            padding: EdgeInsets.all(16),
-            child: Text('No encontramos productos con esa búsqueda.'),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text('No encontramos productos para "$rawQuery".'),
           ),
         for (final product in matches) _productCard(product, inCart: false),
       ],
@@ -315,9 +348,24 @@ class _ShopState extends State<_Shop> {
               contentPadding: EdgeInsets.zero,
               leading: Icon(product.icon),
               title: Text(product.name),
-              subtitle: Text(
-                '${_soles(product.price)} / ${product.unit}\n'
-                '${product.stock == 0 ? 'Agotado' : 'Disponible'}',
+              subtitle: Text.rich(
+                TextSpan(
+                  children: [
+                    TextSpan(
+                      text: '${_soles(product.price)} / ${product.unit}\n',
+                    ),
+                    if (product.stock == 0)
+                      TextSpan(
+                        text: 'Agotado',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      )
+                    else
+                      const TextSpan(text: 'Disponible'),
+                  ],
+                ),
               ),
               isThreeLine: true,
             ),
