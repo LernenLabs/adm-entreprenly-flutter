@@ -43,6 +43,12 @@ String _normalize(String text) {
   return lower.split('').map((char) => _accents[char] ?? char).join();
 }
 
+/// Cantidad con su unidad para el mensaje: «2 kg», «1 unidad», «3 unidades».
+String _quantityLabel(_Product product, int quantity) {
+  if (product.unit == 'kg') return '$quantity kg';
+  return '$quantity ${quantity == 1 ? 'unidad' : 'unidades'}';
+}
+
 class _Product {
   const _Product(this.name, this.unit, this.price, this.stock, this.icon);
 
@@ -127,11 +133,7 @@ class _ShopState extends State<_Shop> {
       'Hola, quisiera pedir lo siguiente:',
       '',
       for (final item in _cart.entries)
-        '- ${item.value} ${item.key.unit == 'kg'
-            ? 'kg'
-            : item.value == 1
-            ? 'unidad'
-            : 'unidades'} de ${item.key.name}',
+        '- ${_quantityLabel(item.key, item.value)} de ${item.key.name}',
       '',
       'Total estimado: ${_soles(_total)}.',
       '¿Me confirman disponibilidad y precio, por favor?',
