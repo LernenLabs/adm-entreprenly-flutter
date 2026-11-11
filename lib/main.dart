@@ -49,12 +49,6 @@ String _normalize(String text) {
   return lower.split('').map((char) => _accents[char] ?? char).join();
 }
 
-/// Cantidad con su unidad para el mensaje: «2 kg», «1 unidad», «3 unidades».
-String _quantityLabel(_Product product, int quantity) {
-  if (product.unit == 'kg') return '$quantity kg';
-  return '$quantity ${quantity == 1 ? 'unidad' : 'unidades'}';
-}
-
 class _Product {
   const _Product(this.name, this.unit, this.price, this.stock, this.icon);
 
@@ -108,7 +102,17 @@ class _Shop extends StatefulWidget {
 class _ShopState extends State<_Shop> {
   final _search = TextEditingController();
   final Map<_Product, int> _cart = {};
-  int _tab = 0;
+  _ShopScreen _screen = _ShopScreen.catalog;
+
+  int get _itemCount => _cart.values.fold(0, (sum, quantity) => sum + quantity);
+
+  void _showScreen(_ShopScreen screen) {
+    if (screen == _screen) return;
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() => _screen = screen);
+  }
+
+  void _showCatalog() => _showScreen(_ShopScreen.catalog);
 
   int get _total => _cart.entries.fold(
     0,
@@ -149,20 +153,19 @@ class _ShopState extends State<_Shop> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Revisa tu pedido'),
-        content: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SelectableText(message),
-              if (hasStorePhone) ...[
-                const SizedBox(height: 16),
-                const Text(
-                  'Envía el mensaje desde WhatsApp para consultar con la tienda.',
-                ),
-              ],
+        scrollable: true,
+        content: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SelectableText(message),
+            if (hasStorePhone) ...[
+              const SizedBox(height: 16),
+              const Text(
+                'Envía el mensaje desde WhatsApp para consultar con la tienda.',
+              ),
             ],
-          ),
+          ],
         ),
         actions: [
           TextButton(
@@ -200,42 +203,47 @@ class _ShopState extends State<_Shop> {
 
   void _notify(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
   Widget build(BuildContext context) {
-    final count = _cart.values.fold(0, (sum, quantity) => sum + quantity);
-    return Scaffold(
-      appBar: AppBar(title: const Text('Entreprenly Compras')),
-      body: SafeArea(
-        bottom: false,
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 640),
-            child: _tab == 0 ? _catalog(context) : _basket(context),
+    final isCatalog = _screen == _ShopScreen.catalog;
+    final count = _itemCount;
+    final countLabel = '$count ${count == 1 ? 'ítem' : 'ítems'}';
+    return PopScope<Object?>(
+      canPop: isCatalog,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && !isCatalog) _showCatalog();
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(_screen.label),
+          toolbarHeight: 36 + MediaQuery.textScalerOf(context).scale(20),
+          leading: isCatalog
+              ? null
+              : IconButton(
+                  tooltip: 'Volver al catálogo',
+                  onPressed: _showCatalog,
+                  icon: const BackButtonIcon(),
+                ),
+        ),
+        body: SafeArea(
+          bottom: false,
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 640),
+              child: isCatalog ? _catalog(context) : _basket(context),
+            ),
           ),
         ),
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _tab,
-        onDestinationSelected: (index) => setState(() => _tab = index),
-        destinations: [
-          const NavigationDestination(
-            icon: Icon(Icons.storefront_outlined),
-            selectedIcon: Icon(Icons.storefront),
-            label: 'Catálogo',
-          ),
-          NavigationDestination(
-            icon: Badge(
-              isLabelVisible: count > 0,
-              label: Text('$count'),
-              child: const Icon(Icons.shopping_bag_outlined),
-            ),
-            label: 'Carrito',
-          ),
-        ],
+        bottomNavigationBar: _ShopNavigation(
+          selectedScreen: _screen,
+          countLabel: countLabel,
+          onSelected: _showScreen,
+        ),
       ),
     );
   }
@@ -247,6 +255,7 @@ class _ShopState extends State<_Shop> {
       (product) => _normalize(product.name).contains(query),
     );
     return ListView(
+      key: const PageStorageKey(_ShopScreen.catalog),
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       children: [
         Card(
@@ -279,7 +288,7 @@ class _ShopState extends State<_Shop> {
           controller: _search,
           onChanged: (_) => setState(() {}),
           decoration: const InputDecoration(
-            labelText: 'Buscar productos',
+            labelText: 'Buscar',
             prefixIcon: Icon(Icons.search),
             border: OutlineInputBorder(),
           ),
@@ -298,7 +307,7 @@ class _ShopState extends State<_Shop> {
   Widget _basket(BuildContext context) {
     if (_cart.isEmpty) {
       return Center(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -307,11 +316,12 @@ class _ShopState extends State<_Shop> {
               const SizedBox(height: 12),
               Text(
                 'Tu carrito está vacío',
+                textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.titleLarge,
               ),
               const SizedBox(height: 16),
               FilledButton(
-                onPressed: () => setState(() => _tab = 0),
+                onPressed: _showCatalog,
                 child: const Text('Ver catálogo'),
               ),
             ],
@@ -321,10 +331,9 @@ class _ShopState extends State<_Shop> {
     }
 
     return ListView(
+      key: const PageStorageKey(_ShopScreen.cart),
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
       children: [
-        Text('Tu carrito', style: Theme.of(context).textTheme.headlineSmall),
-        const SizedBox(height: 12),
         for (final product in _cart.keys) _productCard(product, inCart: true),
         const SizedBox(height: 16),
         Text('Total estimado', style: Theme.of(context).textTheme.titleMedium),
@@ -332,10 +341,9 @@ class _ShopState extends State<_Shop> {
         const SizedBox(height: 8),
         const Text('La tienda confirma la disponibilidad y el precio final.'),
         const SizedBox(height: 16),
-        FilledButton.icon(
+        FilledButton(
           onPressed: _reviewOrder,
-          icon: const Icon(Icons.chat_outlined),
-          label: const Text('Revisar pedido'),
+          child: const Text('Revisar pedido', textAlign: TextAlign.center),
         ),
       ],
     );
@@ -350,59 +358,153 @@ class _ShopState extends State<_Shop> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(product.icon),
-              title: Text(product.name),
-              subtitle: Text.rich(
-                TextSpan(
-                  children: [
-                    TextSpan(
-                      text: '${_soles(product.price)} / ${product.unit}\n',
-                    ),
-                    if (product.stock == 0)
-                      TextSpan(
-                        text: 'Agotado',
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      )
-                    else
-                      const TextSpan(text: 'Disponible'),
-                  ],
-                ),
-              ),
-              isThreeLine: true,
-            ),
             Row(
-              mainAxisAlignment: MainAxisAlignment.end,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (quantity > 0) ...[
-                  IconButton(
-                    tooltip: 'Quitar ${product.name}',
-                    onPressed: () => _changeQuantity(product, -1),
-                    icon: const Icon(Icons.remove_circle_outline),
+                Icon(product.icon),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        product.name,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      Text('${_soles(product.price)} / ${product.unit}'),
+                      if (product.stock == 0)
+                        Text(
+                          'Agotado',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        )
+                      else
+                        const Text('Disponible'),
+                    ],
                   ),
-                  Text(
-                    inCart
-                        ? '$quantity ${_unitLabel(product.unit, quantity)}'
-                        : '$quantity',
-                  ),
-                ],
-                IconButton(
-                  tooltip: 'Agregar ${product.name}',
-                  onPressed: quantity < product.stock
-                      ? () => _changeQuantity(product, 1)
-                      : null,
-                  icon: const Icon(Icons.add_circle_outline),
                 ),
-                if (inCart) ...[
-                  const SizedBox(width: 8),
-                  Flexible(child: Text(_soles(product.price * quantity))),
-                ],
               ],
             ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: Wrap(
+                alignment: WrapAlignment.end,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  if (quantity > 0) ...[
+                    IconButton(
+                      tooltip: 'Quitar ${product.name}',
+                      onPressed: () => _changeQuantity(product, -1),
+                      icon: const Icon(Icons.remove_circle_outline),
+                    ),
+                    Text(
+                      inCart
+                          ? '$quantity ${_unitLabel(product.unit, quantity)}'
+                          : '$quantity',
+                    ),
+                  ],
+                  IconButton(
+                    tooltip: 'Agregar ${product.name}',
+                    onPressed: quantity < product.stock
+                        ? () => _changeQuantity(product, 1)
+                        : null,
+                    icon: const Icon(Icons.add_circle_outline),
+                  ),
+                ],
+              ),
+            ),
+            if (inCart)
+              Align(
+                alignment: Alignment.centerRight,
+                child: Text(_soles(product.price * quantity)),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+enum _ShopScreen {
+  catalog('Catálogo', Icons.storefront_outlined, Icons.storefront),
+  cart('Carrito', Icons.shopping_bag_outlined, Icons.shopping_bag);
+
+  const _ShopScreen(this.label, this.icon, this.selectedIcon);
+
+  final String label;
+  final IconData icon;
+  final IconData selectedIcon;
+}
+
+class _ShopNavigation extends StatelessWidget {
+  const _ShopNavigation({
+    required this.selectedScreen,
+    required this.countLabel,
+    required this.onSelected,
+  });
+
+  final _ShopScreen selectedScreen;
+  final String countLabel;
+  final ValueChanged<_ShopScreen> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    return Material(
+      color: colors.surfaceContainer,
+      child: SafeArea(
+        top: false,
+        minimum: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+        child: Row(
+          children: [
+            for (final screen in _ShopScreen.values)
+              Expanded(
+                child: Semantics(
+                  selected: screen == selectedScreen,
+                  child: TextButton(
+                    onPressed: () => onSelected(screen),
+                    style: TextButton.styleFrom(
+                      minimumSize: const Size(48, 48),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 6,
+                      ),
+                      backgroundColor: screen == selectedScreen
+                          ? colors.secondaryContainer
+                          : null,
+                      foregroundColor: screen == selectedScreen
+                          ? colors.onSecondaryContainer
+                          : colors.onSurface,
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          screen == selectedScreen
+                              ? screen.selectedIcon
+                              : screen.icon,
+                        ),
+                        Text(screen.label, textAlign: TextAlign.center),
+                        if (screen == _ShopScreen.cart)
+                          Semantics(
+                            liveRegion: true,
+                            child: Text(
+                              countLabel,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
