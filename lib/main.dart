@@ -13,6 +13,12 @@ final _validStorePhone = RegExp(r'^[1-9][0-9]{7,14}$');
 
 String _soles(int cents) => 'S/ ${(cents / 100).toStringAsFixed(2)}';
 
+String _unitLabel(String unit, int quantity) {
+  if (unit == 'kg') return 'kg';
+  if (unit == 'unidad') return quantity == 1 ? 'unidad' : 'unidades';
+  return unit;
+}
+
 const _accents = {
   'á': 'a',
   'à': 'a',
@@ -133,7 +139,7 @@ class _ShopState extends State<_Shop> {
       'Hola, quisiera pedir lo siguiente:',
       '',
       for (final item in _cart.entries)
-        '- ${_quantityLabel(item.key, item.value)} de ${item.key.name}',
+        '- ${item.value} ${_unitLabel(item.key.unit, item.value)} de ${item.key.name}',
       '',
       'Total estimado: ${_soles(_total)}.',
       '¿Me confirman disponibilidad y precio, por favor?',
@@ -378,7 +384,11 @@ class _ShopState extends State<_Shop> {
                     onPressed: () => _changeQuantity(product, -1),
                     icon: const Icon(Icons.remove_circle_outline),
                   ),
-                  Text('$quantity'),
+                  Text(
+                    inCart
+                        ? '$quantity ${_unitLabel(product.unit, quantity)}'
+                        : '$quantity',
+                  ),
                 ],
                 IconButton(
                   tooltip: 'Agregar ${product.name}',
