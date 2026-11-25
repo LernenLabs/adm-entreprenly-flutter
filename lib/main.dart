@@ -2,14 +2,26 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-void main() => runApp(const MyApp());
+import 'catalog.dart';
+
+void main() => runApp(MyApp());
 
 const _storeName = String.fromEnvironment(
   'STORE_NAME',
   defaultValue: 'Minimarket demo',
 );
 const _storePhone = String.fromEnvironment('STORE_WHATSAPP');
+const _apiBaseUrl = String.fromEnvironment(
+  'API_BASE_URL',
+  defaultValue: 'https://adm-entreprenly-backend.onrender.com',
+);
 final _validStorePhone = RegExp(r'^[1-9][0-9]{7,14}$');
+
+const _brandOrange = Color(0xFFF38313);
+const _brandInk = Color(0xFF0C0F12);
+
+/// Tamaño común de las fotos del catálogo y del carrito, para que todas las tarjetas se alineen.
+const _photoSize = 72.0;
 
 String _soles(int cents) => 'S/ ${(cents / 100).toStringAsFixed(2)}';
 
@@ -49,62 +61,125 @@ String _normalize(String text) {
   return lower.split('').map((char) => _accents[char] ?? char).join();
 }
 
-class _Product {
-  const _Product(this.name, this.unit, this.price, this.stock, this.icon);
-
-  final String name;
-  final String unit;
-  final int price;
-  final int stock;
-  final IconData icon;
-}
-
-// shortcut: catálogo de muestra, conectar al inventario antes de usarlo con clientes.
-const _products = [
-  _Product('Arroz a granel', 'kg', 480, 8, Icons.rice_bowl_outlined),
-  _Product('Leche evaporada', 'unidad', 420, 12, Icons.local_drink_outlined),
-  _Product('Azúcar rubia', 'kg', 390, 5, Icons.inventory_2_outlined),
-  _Product('Aceite vegetal', 'unidad', 850, 6, Icons.water_drop_outlined),
-  _Product('Avena', 'unidad', 320, 0, Icons.breakfast_dining_outlined),
-];
-
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  /// [catalog] permite inyectar otro origen del catálogo (por ejemplo, en pruebas).
+  MyApp({super.key, CatalogRepository? catalog})
+    : catalog = catalog ?? HttpCatalogRepository(baseUrl: _apiBaseUrl);
+
+  final CatalogRepository catalog;
 
   @override
   Widget build(BuildContext context) {
-    final colors = ColorScheme.fromSeed(seedColor: const Color(0xFFF38313));
+    final colors = ColorScheme.fromSeed(seedColor: _brandOrange);
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Entreprenly Compras',
       theme: ThemeData(
         colorScheme: colors,
         scaffoldBackgroundColor: const Color(0xFFFBF8F5),
+        // El naranja de la marca cubre también la barra de estado.
+        appBarTheme: const AppBarTheme(
+          backgroundColor: _brandOrange,
+          foregroundColor: _brandInk,
+          surfaceTintColor: Colors.transparent,
+          scrolledUnderElevation: 0,
+          systemOverlayStyle: SystemUiOverlayStyle(
+            statusBarColor: _brandOrange,
+            statusBarIconBrightness: Brightness.dark,
+            statusBarBrightness: Brightness.light,
+          ),
+        ),
         filledButtonTheme: FilledButtonThemeData(
           style: FilledButton.styleFrom(
-            backgroundColor: const Color(0xFFF38313),
-            foregroundColor: const Color(0xFF0C0F12),
+            backgroundColor: _brandOrange,
+            foregroundColor: _brandInk,
           ),
         ),
       ),
-      home: const _Shop(),
+      home: _Shop(catalog: catalog),
     );
   }
 }
 
 class _Shop extends StatefulWidget {
-  const _Shop();
+  const _Shop({required this.catalog});
+
+  final CatalogRepository catalog;
 
   @override
   State<_Shop> createState() => _ShopState();
 }
 
+enum _CatalogStatus { loading, ready, error }
+
 class _ShopState extends State<_Shop> {
   final _search = TextEditingController();
-  final Map<_Product, int> _cart = {};
+
+  /// Cantidades del carrito por [CatalogProduct.key].
+  final Map<String, int> _cart = {};
+  List<CatalogProduct> _products = const [];
+  _CatalogStatus _status = _CatalogStatus.loading;
+  String _error = '';
   _ShopScreen _screen = _ShopScreen.catalog;
 
+  @override
+  void initState() {
+    super.initState();
+    _loadCatalog();
+  }
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadCatalog() async {
+    if (_products.isEmpty) setState(() => _status = _CatalogStatus.loading);
+    try {
+      final products = await widget.catalog.fetchCatalog();
+      if (!mounted) return;
+      setState(() {
+        _products = products;
+        _status = _CatalogStatus.ready;
+        // Ajusta el carrito al stock actualizado y quita lo que ya no existe.
+        final byKey = {for (final p in products) p.key: p};
+        _cart.removeWhere((key, _) => byKey[key]?.isAvailable != true);
+        for (final entry in _cart.entries.toList()) {
+          final product = byKey[entry.key]!;
+          if (!product.fits(entry.value)) {
+            _cart[entry.key] = product.stock.floor();
+          }
+        }
+        _cart.removeWhere((_, quantity) => quantity <= 0);
+      });
+    } on CatalogException catch (error) {
+      if (!mounted) return;
+      if (_products.isNotEmpty) {
+        _notify(error.message);
+        return;
+      }
+      setState(() {
+        _status = _CatalogStatus.error;
+        _error = error.message;
+      });
+    }
+  }
+
+  Map<CatalogProduct, int> get _cartItems {
+    final byKey = {for (final p in _products) p.key: p};
+    return {
+      for (final entry in _cart.entries)
+        if (byKey[entry.key] != null) byKey[entry.key]!: entry.value,
+    };
+  }
+
   int get _itemCount => _cart.values.fold(0, (sum, quantity) => sum + quantity);
+
+  int get _total => _cartItems.entries.fold(
+    0,
+    (total, item) => total + item.key.price * item.value,
+  );
 
   void _showScreen(_ShopScreen screen) {
     if (screen == _screen) return;
@@ -114,26 +189,15 @@ class _ShopState extends State<_Shop> {
 
   void _showCatalog() => _showScreen(_ShopScreen.catalog);
 
-  int get _total => _cart.entries.fold(
-    0,
-    (total, item) => total + item.key.price * item.value,
-  );
-
-  @override
-  void dispose() {
-    _search.dispose();
-    super.dispose();
-  }
-
-  void _changeQuantity(_Product product, int change) {
-    final quantity = (_cart[product] ?? 0) + change;
-    if (quantity < 0 || quantity > product.stock) return;
+  void _changeQuantity(CatalogProduct product, int change) {
+    final quantity = (_cart[product.key] ?? 0) + change;
+    if (quantity < 0 || !product.fits(quantity)) return;
 
     setState(() {
       if (quantity == 0) {
-        _cart.remove(product);
+        _cart.remove(product.key);
       } else {
-        _cart[product] = quantity;
+        _cart[product.key] = quantity;
       }
     });
   }
@@ -142,7 +206,7 @@ class _ShopState extends State<_Shop> {
     final message = [
       'Hola, quisiera pedir lo siguiente:',
       '',
-      for (final item in _cart.entries)
+      for (final item in _cartItems.entries)
         '- ${item.value} ${_unitLabel(item.key.unit, item.value)} de ${item.key.name}',
       '',
       'Total estimado: ${_soles(_total)}.',
@@ -220,7 +284,10 @@ class _ShopState extends State<_Shop> {
       },
       child: Scaffold(
         appBar: AppBar(
-          title: Text(_screen.label),
+          title: Text(
+            _screen.label,
+            style: const TextStyle(fontWeight: FontWeight.w800),
+          ),
           toolbarHeight: 36 + MediaQuery.textScalerOf(context).scale(20),
           leading: isCatalog
               ? null
@@ -231,6 +298,7 @@ class _ShopState extends State<_Shop> {
                 ),
         ),
         body: SafeArea(
+          top: false,
           bottom: false,
           child: Center(
             child: ConstrainedBox(
@@ -249,63 +317,96 @@ class _ShopState extends State<_Shop> {
   }
 
   Widget _catalog(BuildContext context) {
+    switch (_status) {
+      case _CatalogStatus.loading:
+        return const _CatalogMessage(
+          key: ValueKey('catalog-loading'),
+          icon: null,
+          title: 'Cargando catálogo…',
+          message: 'La primera carga puede tardar unos segundos.',
+        );
+      case _CatalogStatus.error:
+        return _CatalogMessage(
+          key: const ValueKey('catalog-error'),
+          icon: Icons.cloud_off_outlined,
+          title: 'No pudimos cargar el catálogo',
+          message: _error,
+          actionLabel: 'Reintentar',
+          onAction: _loadCatalog,
+        );
+      case _CatalogStatus.ready:
+        break;
+    }
+
     final rawQuery = _search.text.trim();
     final query = _normalize(rawQuery);
     final matches = _products.where(
-      (product) => _normalize(product.name).contains(query),
+      (product) =>
+          _normalize(product.name).contains(query) ||
+          _normalize(product.brand ?? '').contains(query),
     );
-    return ListView(
-      key: const PageStorageKey(_ShopScreen.catalog),
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-      children: [
-        Card(
-          margin: EdgeInsets.zero,
-          color: const Color(0xFFFFEBD7),
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Catálogo de demostración',
-                  style: Theme.of(context).textTheme.labelLarge,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  _storeName,
-                  style: Theme.of(context).textTheme.headlineSmall,
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Arma tu pedido y consulta con la tienda por WhatsApp.',
-                ),
-              ],
+    return RefreshIndicator(
+      onRefresh: _loadCatalog,
+      child: ListView(
+        key: const PageStorageKey(_ShopScreen.catalog),
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+        children: [
+          Card(
+            margin: EdgeInsets.zero,
+            color: const Color(0xFFFFEBD7),
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Catálogo de la tienda',
+                    style: Theme.of(context).textTheme.labelLarge,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _storeName,
+                    style: Theme.of(context).textTheme.headlineSmall,
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Arma tu pedido y consulta con la tienda por WhatsApp.',
+                  ),
+                ],
+              ),
             ),
           ),
-        ),
-        const SizedBox(height: 16),
-        TextField(
-          controller: _search,
-          onChanged: (_) => setState(() {}),
-          decoration: const InputDecoration(
-            labelText: 'Buscar',
-            prefixIcon: Icon(Icons.search),
-            border: OutlineInputBorder(),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _search,
+            onChanged: (_) => setState(() {}),
+            decoration: const InputDecoration(
+              labelText: 'Buscar',
+              prefixIcon: Icon(Icons.search),
+              border: OutlineInputBorder(),
+            ),
           ),
-        ),
-        const SizedBox(height: 12),
-        if (matches.isEmpty)
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Text('No encontramos productos para "$rawQuery".'),
-          ),
-        for (final product in matches) _productCard(product, inCart: false),
-      ],
+          const SizedBox(height: 12),
+          if (_products.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('La tienda todavía no publica productos.'),
+            )
+          else if (matches.isEmpty)
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text('No encontramos productos para "$rawQuery".'),
+            ),
+          for (final product in matches) _productCard(product, inCart: false),
+        ],
+      ),
     );
   }
 
   Widget _basket(BuildContext context) {
-    if (_cart.isEmpty) {
+    final items = _cartItems;
+    if (items.isEmpty) {
       return Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
@@ -332,9 +433,9 @@ class _ShopState extends State<_Shop> {
 
     return ListView(
       key: const PageStorageKey(_ShopScreen.cart),
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
       children: [
-        for (final product in _cart.keys) _productCard(product, inCart: true),
+        for (final product in items.keys) _productCard(product, inCart: true),
         const SizedBox(height: 16),
         Text('Total estimado', style: Theme.of(context).textTheme.titleMedium),
         Text(_soles(_total), style: Theme.of(context).textTheme.headlineSmall),
@@ -349,8 +450,9 @@ class _ShopState extends State<_Shop> {
     );
   }
 
-  Widget _productCard(_Product product, {required bool inCart}) {
-    final quantity = _cart[product] ?? 0;
+  Widget _productCard(CatalogProduct product, {required bool inCart}) {
+    final quantity = _cart[product.key] ?? 0;
+    final theme = Theme.of(context);
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: Padding(
@@ -361,27 +463,42 @@ class _ShopState extends State<_Shop> {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(product.icon),
+                _ProductPhoto(product: product),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        product.name,
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
+                      Text(product.name, style: theme.textTheme.titleMedium),
+                      if (product.brand != null)
+                        Text(
+                          product.brand!,
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
                       Text('${_soles(product.price)} / ${product.unit}'),
-                      if (product.stock == 0)
+                      if (!product.isAvailable)
                         Text(
                           'Agotado',
                           style: TextStyle(
-                            color: Theme.of(context).colorScheme.error,
+                            color: theme.colorScheme.error,
                             fontWeight: FontWeight.w600,
                           ),
                         )
                       else
                         const Text('Disponible'),
+                      if (!inCart && product.description != null) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          product.description!,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -408,7 +525,7 @@ class _ShopState extends State<_Shop> {
                   ],
                   IconButton(
                     tooltip: 'Agregar ${product.name}',
-                    onPressed: quantity < product.stock
+                    onPressed: product.fits(quantity + 1)
                         ? () => _changeQuantity(product, 1)
                         : null,
                     icon: const Icon(Icons.add_circle_outline),
@@ -421,6 +538,96 @@ class _ShopState extends State<_Shop> {
                 alignment: Alignment.centerRight,
                 child: Text(_soles(product.price * quantity)),
               ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Foto del producto en un cuadrado fijo. Sin foto, o si falla, muestra un ícono.
+class _ProductPhoto extends StatelessWidget {
+  const _ProductPhoto({required this.product});
+
+  final CatalogProduct product;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final placeholder = ColoredBox(
+      color: const Color(0xFFFFEBD7),
+      child: Center(
+        child: Icon(
+          product.unit == 'kg'
+              ? Icons.scale_outlined
+              : Icons.inventory_2_outlined,
+          color: colors.primary,
+        ),
+      ),
+    );
+    final url = product.imageUrl;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: SizedBox.square(
+        dimension: _photoSize,
+        child: url == null
+            ? placeholder
+            : Image.network(
+                url,
+                fit: BoxFit.cover,
+                semanticLabel: 'Foto de ${product.name}',
+                webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
+                loadingBuilder: (context, child, progress) =>
+                    progress == null ? child : placeholder,
+                errorBuilder: (context, error, stackTrace) => placeholder,
+              ),
+      ),
+    );
+  }
+}
+
+/// Estado de carga o de error del catálogo, centrado y con acción opcional.
+class _CatalogMessage extends StatelessWidget {
+  const _CatalogMessage({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.message,
+    this.actionLabel,
+    this.onAction,
+  });
+
+  /// Sin ícono se muestra un indicador de progreso.
+  final IconData? icon;
+  final String title;
+  final String message;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon == null)
+              const CircularProgressIndicator()
+            else
+              Icon(icon, size: 48),
+            const SizedBox(height: 16),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 8),
+            Text(message, textAlign: TextAlign.center),
+            if (actionLabel != null) ...[
+              const SizedBox(height: 16),
+              FilledButton(onPressed: onAction, child: Text(actionLabel!)),
+            ],
           ],
         ),
       ),
