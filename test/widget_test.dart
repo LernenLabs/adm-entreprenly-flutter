@@ -1,5 +1,10 @@
+import 'dart:convert';
+
+import 'package:entreprenly_compras/catalog.dart';
 import 'package:entreprenly_compras/main.dart';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:url_launcher_platform_interface/link.dart';
@@ -40,7 +45,7 @@ void main() {
       expect(tester.takeException(), isNull);
     }
 
-    await tester.pumpWidget(const MyApp());
+    await _pumpShop(tester);
     expect(title('Catálogo'), findsOneWidget);
     expect(find.text('0 ítems'), findsOneWidget);
 
@@ -110,7 +115,7 @@ void main() {
   testWidgets('El cliente ajusta el carrito y revisa su pedido', (
     tester,
   ) async {
-    await tester.pumpWidget(const MyApp());
+    await _pumpShop(tester);
 
     await tester.tap(find.byTooltip('Agregar Arroz a granel'));
     await tester.tap(find.text('Carrito'));
@@ -132,7 +137,7 @@ void main() {
   testWidgets('Buscar muestra productos agotados sin permitir agregarlos', (
     tester,
   ) async {
-    await tester.pumpWidget(const MyApp());
+    await _pumpShop(tester);
     await tester.enterText(find.byType(TextField), 'avena');
     await tester.pumpAndSettle();
 
@@ -150,7 +155,7 @@ void main() {
   testWidgets('Buscar sin tildes ni mayúsculas encuentra el producto', (
     tester,
   ) async {
-    await tester.pumpWidget(const MyApp());
+    await _pumpShop(tester);
 
     for (final term in ['azucar', 'Azúcar', 'AZUCAR', ' azucar ']) {
       await tester.enterText(find.byType(TextField), term);
@@ -168,7 +173,7 @@ void main() {
   testWidgets('Buscar un término sin resultados avisa al cliente', (
     tester,
   ) async {
-    await tester.pumpWidget(const MyApp());
+    await _pumpShop(tester);
     await tester.enterText(find.byType(TextField), 'xyz');
     await tester.pumpAndSettle();
 
@@ -180,7 +185,7 @@ void main() {
   testWidgets('Vaciar la búsqueda vuelve a mostrar el catálogo', (
     tester,
   ) async {
-    await tester.pumpWidget(const MyApp());
+    await _pumpShop(tester);
     await tester.enterText(find.byType(TextField), 'xyz');
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), '');
@@ -194,7 +199,7 @@ void main() {
   testWidgets('Un producto agotado sigue desactivado al buscarlo', (
     tester,
   ) async {
-    await tester.pumpWidget(const MyApp());
+    await _pumpShop(tester);
 
     for (final term in ['avena', 'AVENA', ' Avena ']) {
       await tester.enterText(find.byType(TextField), term);
@@ -209,7 +214,7 @@ void main() {
   testWidgets('Un producto disponible encontrado permite agregarlo', (
     tester,
   ) async {
-    await tester.pumpWidget(const MyApp());
+    await _pumpShop(tester);
     await tester.enterText(find.byType(TextField), 'azucar');
     await tester.pumpAndSettle();
 
@@ -221,7 +226,7 @@ void main() {
   testWidgets(
     'Al combinar 2 kg de arroz y 1 unidad de leche muestra subtotales, unidades y total de S/ 13.80',
     (tester) async {
-      await tester.pumpWidget(const MyApp());
+      await _pumpShop(tester);
 
       await tester.tap(find.byTooltip('Agregar Arroz a granel'));
       await tester.pumpAndSettle();
@@ -248,7 +253,7 @@ void main() {
   testWidgets('Quitar la última unidad de un producto lo elimina del carrito', (
     tester,
   ) async {
-    await tester.pumpWidget(const MyApp());
+    await _pumpShop(tester);
 
     await tester.tap(find.byTooltip('Agregar Arroz a granel'));
     await tester.pumpAndSettle();
@@ -280,7 +285,7 @@ void main() {
   testWidgets(
     'El botón de agregar se desactiva al llegar al stock de muestra',
     (tester) async {
-      await tester.pumpWidget(const MyApp());
+      await _pumpShop(tester);
 
       for (var i = 0; i < 8; i++) {
         await tester.tap(find.byTooltip('Agregar Arroz a granel'));
@@ -298,6 +303,111 @@ void main() {
       expect(addCartButton.onPressed, isNull);
     },
   );
+
+  testWidgets('Muestra la descripción y la marca que vienen del inventario', (
+    tester,
+  ) async {
+    await _pumpShop(tester);
+    await tester.enterText(find.byType(TextField), 'leche');
+    await tester.pumpAndSettle();
+
+    expect(find.text('Gloria'), findsOneWidget);
+    expect(find.text('Lata de 400 g, ideal para el desayuno.'), findsOneWidget);
+  });
+
+  testWidgets('Si el catálogo falla muestra el error y permite reintentar', (
+    tester,
+  ) async {
+    final catalog = _FakeCatalog(_sampleProducts, failuresBeforeSuccess: 1);
+    await tester.pumpWidget(MyApp(catalog: catalog));
+    await tester.pumpAndSettle();
+
+    expect(find.text('No pudimos cargar el catálogo'), findsOneWidget);
+    expect(find.text('Sin conexión de prueba.'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Reintentar'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Arroz a granel'), findsOneWidget);
+    expect(catalog.calls, 2);
+  });
+
+  testWidgets('Un catálogo vacío avisa que la tienda no tiene productos', (
+    tester,
+  ) async {
+    await tester.pumpWidget(MyApp(catalog: _FakeCatalog(const [])));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('La tienda todavía no publica productos.'),
+      findsOneWidget,
+    );
+  });
+
+  test('El repositorio HTTP lee el catálogo público del backend', () async {
+    late Uri requested;
+    final client = MockClient((request) async {
+      requested = request.url;
+      return http.Response.bytes(
+        utf8.encode(
+          jsonEncode([
+            {
+              'id': 7,
+              'productType': 'weight',
+              'name': 'Limón',
+              'description': 'Limón sutil jugoso.',
+              'brand': null,
+              'imageUrl': 'https://example.com/limon.jpg',
+              'price': 6.0,
+              'unit': 'kg',
+              'stock': 4.5,
+              'available': true,
+            },
+          ]),
+        ),
+        200,
+        headers: {'content-type': 'application/json'},
+      );
+    });
+    final repository = HttpCatalogRepository(
+      baseUrl: 'https://api.example.com/',
+      client: client,
+    );
+
+    final products = await repository.fetchCatalog();
+
+    expect(
+      requested.toString(),
+      'https://api.example.com/api/v1/public-catalog',
+    );
+    expect(products, hasLength(1));
+    final lemon = products.single;
+    expect(lemon.key, 'weight/7');
+    expect(lemon.name, 'Limón');
+    expect(lemon.unit, 'kg');
+    expect(lemon.price, 600);
+    expect(lemon.fits(4), isTrue);
+    expect(lemon.fits(5), isFalse);
+    expect(lemon.imageUrl, 'https://example.com/limon.jpg');
+  });
+
+  test('El repositorio HTTP traduce un error del servidor', () async {
+    final repository = HttpCatalogRepository(
+      baseUrl: 'https://api.example.com',
+      client: MockClient((_) async => http.Response('boom', 503)),
+    );
+
+    expect(
+      repository.fetchCatalog(),
+      throwsA(
+        isA<CatalogException>().having(
+          (e) => e.message,
+          'message',
+          contains('503'),
+        ),
+      ),
+    );
+  });
 }
 
 class _RecordingUrlLauncher extends UrlLauncherPlatform {
@@ -319,4 +429,73 @@ IconButton _addButton(WidgetTester tester, String name) {
       (widget) => widget is IconButton && widget.tooltip == 'Agregar $name',
     ),
   );
+}
+
+const _sampleProducts = [
+  CatalogProduct(
+    id: 1,
+    type: 'weight',
+    name: 'Arroz a granel',
+    unit: 'kg',
+    price: 480,
+    stock: 8,
+  ),
+  CatalogProduct(
+    id: 1,
+    type: 'unit',
+    name: 'Leche evaporada',
+    brand: 'Gloria',
+    description: 'Lata de 400 g, ideal para el desayuno.',
+    unit: 'unidad',
+    price: 420,
+    stock: 12,
+  ),
+  CatalogProduct(
+    id: 2,
+    type: 'weight',
+    name: 'Azúcar rubia',
+    unit: 'kg',
+    price: 390,
+    stock: 5,
+  ),
+  CatalogProduct(
+    id: 2,
+    type: 'unit',
+    name: 'Aceite vegetal',
+    unit: 'unidad',
+    price: 850,
+    stock: 6,
+  ),
+  CatalogProduct(
+    id: 3,
+    type: 'unit',
+    name: 'Avena',
+    unit: 'unidad',
+    price: 320,
+    stock: 0,
+  ),
+];
+
+/// Catálogo en memoria; puede fallar las primeras [failuresBeforeSuccess] veces.
+class _FakeCatalog implements CatalogRepository {
+  _FakeCatalog(this.products, {this.failuresBeforeSuccess = 0});
+
+  final List<CatalogProduct> products;
+  int failuresBeforeSuccess;
+  int calls = 0;
+
+  @override
+  Future<List<CatalogProduct>> fetchCatalog() async {
+    calls++;
+    if (failuresBeforeSuccess > 0) {
+      failuresBeforeSuccess--;
+      throw const CatalogException('Sin conexión de prueba.');
+    }
+    return products;
+  }
+}
+
+Future<void> _pumpShop(WidgetTester tester) async {
+  await tester.pumpWidget(MyApp(catalog: _FakeCatalog(_sampleProducts)));
+  await tester.pumpAndSettle();
 }
