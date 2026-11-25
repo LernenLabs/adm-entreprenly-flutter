@@ -1,4 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Required to load the store catalog and product photos. -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <application
         android:label="Entreprenly Compras"
         android:name="${applicationName}"
