@@ -18,7 +18,10 @@ class CatalogProduct {
   });
 
   /// Crea el producto desde un elemento de `GET /api/v1/public-catalog`.
-  factory CatalogProduct.fromJson(Map<String, dynamic> json) {
+  ///
+  /// Las fotos subidas desde la app llegan como ruta relativa
+  /// (`/api/v1/inventory-product-images/…`); [baseUri] la convierte en URL completa.
+  factory CatalogProduct.fromJson(Map<String, dynamic> json, {Uri? baseUri}) {
     final type = json['productType'] as String? ?? 'unit';
     final rawPrice = (json['price'] as num?)?.toDouble() ?? 0;
     return CatalogProduct(
@@ -27,7 +30,7 @@ class CatalogProduct {
       name: (json['name'] as String? ?? '').trim(),
       description: _text(json['description']),
       brand: _text(json['brand']),
-      imageUrl: _text(json['imageUrl']),
+      imageUrl: _imageUrl(_text(json['imageUrl']), baseUri),
       unit: _text(json['unit']) ?? (type == 'weight' ? 'kg' : 'unidad'),
       price: (rawPrice * 100).round(),
       stock: (json['stock'] as num?)?.toDouble() ?? 0,
@@ -58,6 +61,11 @@ class CatalogProduct {
 
   /// Indica si caben [quantity] unidades o kilos dentro del stock.
   bool fits(int quantity) => quantity <= stock + 1e-9;
+
+  static String? _imageUrl(String? value, Uri? baseUri) {
+    if (value == null || !value.startsWith('/')) return value;
+    return baseUri?.resolve(value).toString() ?? value;
+  }
 
   static String? _text(Object? value) {
     if (value is! String) return null;
@@ -120,7 +128,10 @@ class HttpCatalogRepository implements CatalogRepository {
       final data = jsonDecode(utf8.decode(response.bodyBytes)) as List<dynamic>;
       return [
         for (final item in data)
-          CatalogProduct.fromJson(item as Map<String, dynamic>),
+          CatalogProduct.fromJson(
+            item as Map<String, dynamic>,
+            baseUri: Uri.parse(baseUrl),
+          ),
       ];
     } on Object {
       throw const CatalogException('El catálogo recibido no es válido.');
