@@ -391,6 +391,22 @@ void main() {
     expect(lemon.imageUrl, 'https://example.com/limon.jpg');
   });
 
+  test('Las fotos subidas al backend se resuelven contra su dirección', () {
+    final product = CatalogProduct.fromJson({
+      'id': 3,
+      'productType': 'unit',
+      'name': 'Fanta 500ml',
+      'imageUrl': '/api/v1/inventory-product-images/abc',
+      'price': 3.5,
+      'stock': 20,
+    }, baseUri: Uri.parse('https://api.example.com'));
+
+    expect(
+      product.imageUrl,
+      'https://api.example.com/api/v1/inventory-product-images/abc',
+    );
+  });
+
   test('El repositorio HTTP traduce un error del servidor', () async {
     final repository = HttpCatalogRepository(
       baseUrl: 'https://api.example.com',
