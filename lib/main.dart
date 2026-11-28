@@ -237,11 +237,24 @@ class _ShopState extends State<_Shop> {
 
     final url = Uri.https('wa.me', '/$_storePhone', {'text': message});
     try {
-      if (await launchUrl(url, mode: LaunchMode.externalApplication)) return;
+      if (await launchUrl(url, mode: LaunchMode.externalApplication)) {
+        _finishOrder();
+        return;
+      }
     } on PlatformException {
       // The system may not have an app that handles the link.
     }
     _notify('No se pudo abrir WhatsApp. Puedes copiar el pedido.');
+  }
+
+  /// The order already went to WhatsApp, so the cart starts over.
+  void _finishOrder() {
+    if (!mounted) return;
+    setState(() {
+      _cart.clear();
+      _screen = _ShopScreen.catalog;
+    });
+    _notify('Pedido enviado a WhatsApp. Tu carrito quedó vacío.');
   }
 
   void _notify(String message) {
