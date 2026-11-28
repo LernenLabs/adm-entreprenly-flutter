@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'catalog.dart';
+import 'theme/entreprenly_theme.dart';
+import 'widgets/brand_components.dart';
 
 void main() => runApp(MyApp());
 
@@ -16,9 +18,6 @@ const _apiBaseUrl = String.fromEnvironment(
   defaultValue: 'https://adm-entreprenly-backend.onrender.com',
 );
 final _validStorePhone = RegExp(r'^[1-9][0-9]{7,14}$');
-
-const _brandOrange = Color(0xFFF38313);
-const _brandInk = Color(0xFF0C0F12);
 
 /// Tamaño común de las fotos del catálogo y del carrito, para que todas las tarjetas se alineen.
 const _photoSize = 72.0;
@@ -70,32 +69,12 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = ColorScheme.fromSeed(seedColor: _brandOrange);
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Entreprenly Compras',
-      theme: ThemeData(
-        colorScheme: colors,
-        scaffoldBackgroundColor: const Color(0xFFFBF8F5),
-        // El naranja de la marca cubre también la barra de estado.
-        appBarTheme: const AppBarTheme(
-          backgroundColor: _brandOrange,
-          foregroundColor: _brandInk,
-          surfaceTintColor: Colors.transparent,
-          scrolledUnderElevation: 0,
-          systemOverlayStyle: SystemUiOverlayStyle(
-            statusBarColor: _brandOrange,
-            statusBarIconBrightness: Brightness.dark,
-            statusBarBrightness: Brightness.light,
-          ),
-        ),
-        filledButtonTheme: FilledButtonThemeData(
-          style: FilledButton.styleFrom(
-            backgroundColor: _brandOrange,
-            foregroundColor: _brandInk,
-          ),
-        ),
-      ),
+      theme: EntreprenlyTheme.light,
+      darkTheme: EntreprenlyTheme.dark,
+      themeMode: ThemeMode.system,
       home: _Shop(catalog: catalog),
     );
   }
@@ -258,11 +237,24 @@ class _ShopState extends State<_Shop> {
 
     final url = Uri.https('wa.me', '/$_storePhone', {'text': message});
     try {
-      if (await launchUrl(url, mode: LaunchMode.externalApplication)) return;
+      if (await launchUrl(url, mode: LaunchMode.externalApplication)) {
+        _finishOrder();
+        return;
+      }
     } on PlatformException {
       // The system may not have an app that handles the link.
     }
     _notify('No se pudo abrir WhatsApp. Puedes copiar el pedido.');
+  }
+
+  /// The order already went to WhatsApp, so the cart starts over.
+  void _finishOrder() {
+    if (!mounted) return;
+    setState(() {
+      _cart.clear();
+      _screen = _ShopScreen.catalog;
+    });
+    _notify('Pedido enviado a WhatsApp. Tu carrito quedó vacío.');
   }
 
   void _notify(String message) {
@@ -284,11 +276,11 @@ class _ShopState extends State<_Shop> {
       },
       child: Scaffold(
         appBar: AppBar(
-          title: Text(
-            _screen.label,
-            style: const TextStyle(fontWeight: FontWeight.w800),
-          ),
-          toolbarHeight: 36 + MediaQuery.textScalerOf(context).scale(20),
+          title: Text(_screen.label),
+          // Keep the 64px toolbar at normal scale and allow large text to grow.
+          toolbarHeight:
+              BrandMetrics.toolbarHeight +
+              (MediaQuery.textScalerOf(context).scale(28) - 28),
           leading: isCatalog
               ? null
               : IconButton(
@@ -350,24 +342,28 @@ class _ShopState extends State<_Shop> {
       child: ListView(
         key: const PageStorageKey(_ShopScreen.catalog),
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+        padding: const EdgeInsets.all(BrandMetrics.pagePadding),
         children: [
           Card(
             margin: EdgeInsets.zero,
-            color: const Color(0xFFFFEBD7),
+            color: BrandColors.of(context).highlight,
             child: Padding(
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     'Catálogo de la tienda',
-                    style: Theme.of(context).textTheme.labelLarge,
+                    style: Theme.of(context).textTheme.titleMedium!.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     _storeName,
-                    style: Theme.of(context).textTheme.headlineSmall,
+                    style: Theme.of(context).textTheme.headlineSmall!.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                   const SizedBox(height: 8),
                   const Text(
@@ -377,17 +373,12 @@ class _ShopState extends State<_Shop> {
               ),
             ),
           ),
-          const SizedBox(height: 16),
-          TextField(
+          const SizedBox(height: BrandMetrics.pagePadding),
+          BrandSearchField(
             controller: _search,
             onChanged: (_) => setState(() {}),
-            decoration: const InputDecoration(
-              labelText: 'Buscar',
-              prefixIcon: Icon(Icons.search),
-              border: OutlineInputBorder(),
-            ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: BrandMetrics.pagePadding),
           if (_products.isEmpty)
             const Padding(
               padding: EdgeInsets.all(16),
@@ -421,9 +412,12 @@ class _ShopState extends State<_Shop> {
                 style: Theme.of(context).textTheme.titleLarge,
               ),
               const SizedBox(height: 16),
-              FilledButton(
-                onPressed: _showCatalog,
-                child: const Text('Ver catálogo'),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: _showCatalog,
+                  child: const Text('Ver catálogo'),
+                ),
               ),
             ],
           ),
@@ -433,12 +427,22 @@ class _ShopState extends State<_Shop> {
 
     return ListView(
       key: const PageStorageKey(_ShopScreen.cart),
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+      padding: const EdgeInsets.all(BrandMetrics.pagePadding),
       children: [
         for (final product in items.keys) _productCard(product, inCart: true),
         const SizedBox(height: 16),
-        Text('Total estimado', style: Theme.of(context).textTheme.titleMedium),
-        Text(_soles(_total), style: Theme.of(context).textTheme.headlineSmall),
+        Text(
+          'Total estimado',
+          style: Theme.of(
+            context,
+          ).textTheme.titleMedium!.copyWith(fontWeight: FontWeight.w700),
+        ),
+        Text(
+          _soles(_total),
+          style: Theme.of(
+            context,
+          ).textTheme.headlineMedium!.copyWith(fontWeight: FontWeight.w800),
+        ),
         const SizedBox(height: 8),
         const Text('La tienda confirma la disponibilidad y el precio final.'),
         const SizedBox(height: 16),
@@ -454,9 +458,9 @@ class _ShopState extends State<_Shop> {
     final quantity = _cart[product.key] ?? 0;
     final theme = Theme.of(context);
     return Card(
-      margin: const EdgeInsets.only(bottom: 8),
+      margin: const EdgeInsets.only(bottom: BrandMetrics.pagePadding),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(BrandMetrics.cardPadding),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -469,11 +473,16 @@ class _ShopState extends State<_Shop> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(product.name, style: theme.textTheme.titleMedium),
+                      Text(
+                        product.name,
+                        style: theme.textTheme.titleMedium!.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                       if (product.brand != null)
                         Text(
                           product.brand!,
-                          style: theme.textTheme.labelMedium?.copyWith(
+                          style: theme.textTheme.bodyMedium?.copyWith(
                             color: theme.colorScheme.onSurfaceVariant,
                           ),
                         ),
@@ -487,14 +496,19 @@ class _ShopState extends State<_Shop> {
                           ),
                         )
                       else
-                        const Text('Disponible'),
+                        Text(
+                          'Disponible',
+                          style: theme.textTheme.bodyMedium!.copyWith(
+                            color: BrandColors.of(context).success,
+                          ),
+                        ),
                       if (!inCart && product.description != null) ...[
                         const SizedBox(height: 4),
                         Text(
                           product.description!,
                           maxLines: 3,
                           overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall?.copyWith(
+                          style: theme.textTheme.bodyMedium?.copyWith(
                             color: theme.colorScheme.onSurfaceVariant,
                           ),
                         ),
@@ -555,7 +569,7 @@ class _ProductPhoto extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final placeholder = ColoredBox(
-      color: const Color(0xFFFFEBD7),
+      color: BrandColors.of(context).highlight,
       child: Center(
         child: Icon(
           product.unit == 'kg'
@@ -612,21 +626,27 @@ class _CatalogMessage extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (icon == null)
-              const CircularProgressIndicator()
-            else
-              Icon(icon, size: 48),
-            const SizedBox(height: 16),
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 8),
-            Text(message, textAlign: TextAlign.center),
+            if (icon == null) ...[
+              const CircularProgressIndicator(),
+              const SizedBox(height: 16),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 8),
+              Text(message, textAlign: TextAlign.center),
+            ] else
+              BrandErrorNotice(icon: icon!, title: title, message: message),
             if (actionLabel != null) ...[
               const SizedBox(height: 16),
-              FilledButton(onPressed: onAction, child: Text(actionLabel!)),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: onAction,
+                  child: Text(actionLabel!),
+                ),
+              ),
             ],
           ],
         ),
@@ -637,7 +657,7 @@ class _CatalogMessage extends StatelessWidget {
 
 enum _ShopScreen {
   catalog('Catálogo', Icons.storefront_outlined, Icons.storefront),
-  cart('Carrito', Icons.shopping_bag_outlined, Icons.shopping_bag);
+  cart('Carrito', Icons.shopping_cart, Icons.shopping_cart);
 
   const _ShopScreen(this.label, this.icon, this.selectedIcon);
 
@@ -662,7 +682,8 @@ class _ShopNavigation extends StatelessWidget {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
     return Material(
-      color: colors.surfaceContainer,
+      color: colors.surface,
+      shape: Border(top: BorderSide(color: colors.outline)),
       child: SafeArea(
         top: false,
         minimum: const EdgeInsets.fromLTRB(8, 6, 8, 6),
@@ -680,30 +701,53 @@ class _ShopNavigation extends StatelessWidget {
                         horizontal: 8,
                         vertical: 6,
                       ),
-                      backgroundColor: screen == selectedScreen
-                          ? colors.secondaryContainer
-                          : null,
                       foregroundColor: screen == selectedScreen
-                          ? colors.onSecondaryContainer
-                          : colors.onSurface,
+                          ? colors.onSurface
+                          : colors.onSurfaceVariant,
                     ),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(
-                          screen == selectedScreen
-                              ? screen.selectedIcon
-                              : screen.icon,
+                        Container(
+                          decoration: BoxDecoration(
+                            color: screen == selectedScreen
+                                ? BrandColors.of(context).highlight
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 6,
+                          ),
+                          child: Icon(
+                            screen == selectedScreen
+                                ? screen.selectedIcon
+                                : screen.icon,
+                            size: 24,
+                          ),
                         ),
-                        Text(screen.label, textAlign: TextAlign.center),
+                        Text(
+                          screen.label,
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.labelSmall!.copyWith(
+                            color: screen == selectedScreen
+                                ? colors.onSurface
+                                : colors.onSurfaceVariant,
+                            fontWeight: screen == selectedScreen
+                                ? FontWeight.w700
+                                : FontWeight.w400,
+                          ),
+                        ),
                         if (screen == _ShopScreen.cart)
                           Semantics(
                             liveRegion: true,
                             child: Text(
                               countLabel,
                               textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
+                              style: theme.textTheme.labelSmall!.copyWith(
+                                color: screen == selectedScreen
+                                    ? colors.onSurface
+                                    : colors.onSurfaceVariant,
                               ),
                             ),
                           ),

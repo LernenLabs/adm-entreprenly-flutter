@@ -20,3 +20,7 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  fonts:
+    - family: RedditSans
+      fonts:
+        - asset: assets/fonts/reddit_sans.ttf

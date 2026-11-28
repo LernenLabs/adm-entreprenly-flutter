@@ -11,104 +11,154 @@ import 'package:url_launcher_platform_interface/link.dart';
 import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 
 void main() {
-  testWidgets('Navegación y pedido con texto al 200 % en 320 × 640', (
+  setUpAll(() async {
+    final font = FontLoader('RedditSans')
+      ..addFont(rootBundle.load('assets/fonts/reddit_sans.ttf'));
+    await font.load();
+  });
+
+  for (final brightness in Brightness.values) {
+    testWidgets(
+      'Navegación y pedido al 200 % en 320 × 640, ${brightness.name}',
+      (tester) async {
+        tester.platformDispatcher.platformBrightnessTestValue = brightness;
+        addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
+        tester.view.devicePixelRatio = 1;
+        tester.view.physicalSize = const Size(320, 640);
+        tester.platformDispatcher.textScaleFactorTestValue = 2;
+        addTearDown(tester.view.resetDevicePixelRatio);
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+
+        String? copiedOrder;
+        final messenger = tester.binding.defaultBinaryMessenger;
+        messenger.setMockMethodCallHandler(SystemChannels.platform, (
+          call,
+        ) async {
+          if (call.method == 'Clipboard.setData') {
+            copiedOrder = (call.arguments as Map)['text'] as String;
+          }
+          return null;
+        });
+        addTearDown(() {
+          messenger.setMockMethodCallHandler(SystemChannels.platform, null);
+        });
+
+        Finder title(String label) => find.descendant(
+          of: find.byType(AppBar),
+          matching: find.text(label),
+        );
+
+        Future<void> tapVisible(Finder target) async {
+          await tester.ensureVisible(target);
+          await tester.pumpAndSettle();
+          expect(target.hitTestable(), findsOneWidget);
+          await tester.tap(target);
+          await tester.pumpAndSettle();
+          expect(tester.takeException(), isNull);
+        }
+
+        await _pumpShop(tester);
+        expect(title('Catálogo'), findsOneWidget);
+        expect(find.text('0 ítems'), findsOneWidget);
+
+        final cartTab = find.widgetWithText(TextButton, 'Carrito');
+        await tapVisible(cartTab);
+        expect(title('Carrito'), findsOneWidget);
+        await tapVisible(find.widgetWithText(FilledButton, 'Ver catálogo'));
+
+        final addMilk = find.byTooltip('Agregar Leche evaporada');
+        await tester.scrollUntilVisible(
+          addMilk,
+          140,
+          scrollable: find
+              .descendant(
+                of: find.byType(ListView),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        );
+        await tapVisible(addMilk);
+        expect(find.text('1 ítem'), findsOneWidget);
+        await tapVisible(addMilk);
+        expect(find.text('2 ítems'), findsOneWidget);
+
+        await tapVisible(cartTab);
+        expect(title('Carrito'), findsOneWidget);
+        expect(find.text('2 unidades'), findsOneWidget);
+        await tapVisible(find.byTooltip('Volver al catálogo'));
+        expect(title('Catálogo'), findsOneWidget);
+        expect(find.text('2 ítems'), findsOneWidget);
+
+        await tapVisible(cartTab);
+        await tapVisible(find.byTooltip('Quitar Leche evaporada'));
+        expect(find.text('1 unidad'), findsOneWidget);
+        expect(find.text('1 ítem'), findsOneWidget);
+
+        final review = find.widgetWithText(FilledButton, 'Revisar pedido');
+        await tester.scrollUntilVisible(review, 120);
+        await tapVisible(review);
+        const phone = String.fromEnvironment('STORE_WHATSAPP');
+        if (phone == '12025550123') {
+          final launcher = _RecordingUrlLauncher();
+          final original = UrlLauncherPlatform.instance;
+          UrlLauncherPlatform.instance = launcher;
+          addTearDown(() => UrlLauncherPlatform.instance = original);
+
+          await tapVisible(find.widgetWithText(FilledButton, 'Abrir WhatsApp'));
+          expect(launcher.openedUrl?.host, 'wa.me');
+          expect(launcher.openedUrl?.path, '/$phone');
+          expect(
+            launcher.openedUrl?.queryParameters['text'],
+            contains('1 unidad de Leche evaporada'),
+          );
+          expect(title('Catálogo'), findsOneWidget);
+          expect(find.text('0 ítems'), findsOneWidget);
+          return;
+        }
+        await tapVisible(find.widgetWithText(TextButton, 'Copiar pedido'));
+        expect(copiedOrder, contains('1 unidad de Leche evaporada'));
+        expect(copiedOrder, contains('S/ 4.20'));
+
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+        expect(title('Catálogo'), findsOneWidget);
+        expect(find.text('1 ítem'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets('Cambiar el tema del sistema conserva búsqueda y carrito', (
     tester,
   ) async {
-    tester.view.devicePixelRatio = 1;
-    tester.view.physicalSize = const Size(320, 640);
-    tester.platformDispatcher.textScaleFactorTestValue = 2;
-    addTearDown(tester.view.resetDevicePixelRatio);
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
-
-    String? copiedOrder;
-    final messenger = tester.binding.defaultBinaryMessenger;
-    messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
-      if (call.method == 'Clipboard.setData') {
-        copiedOrder = (call.arguments as Map)['text'] as String;
-      }
-      return null;
-    });
-    addTearDown(() {
-      messenger.setMockMethodCallHandler(SystemChannels.platform, null);
-    });
-
-    Finder title(String label) =>
-        find.descendant(of: find.byType(AppBar), matching: find.text(label));
-
-    Future<void> tapVisible(Finder target) async {
-      await tester.ensureVisible(target);
-      await tester.pumpAndSettle();
-      expect(target.hitTestable(), findsOneWidget);
-      await tester.tap(target);
-      await tester.pumpAndSettle();
-      expect(tester.takeException(), isNull);
-    }
-
+    tester.platformDispatcher.platformBrightnessTestValue = Brightness.light;
+    addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
     await _pumpShop(tester);
-    expect(title('Catálogo'), findsOneWidget);
-    expect(find.text('0 ítems'), findsOneWidget);
-
-    final cartTab = find.widgetWithText(TextButton, 'Carrito');
-    await tapVisible(cartTab);
-    expect(title('Carrito'), findsOneWidget);
-    await tapVisible(find.widgetWithText(FilledButton, 'Ver catálogo'));
-
-    final addMilk = find.byTooltip('Agregar Leche evaporada');
-    await tester.scrollUntilVisible(
-      addMilk,
-      140,
-      scrollable: find
-          .descendant(
-            of: find.byType(ListView),
-            matching: find.byType(Scrollable),
-          )
-          .first,
-    );
-    await tapVisible(addMilk);
-    expect(find.text('1 ítem'), findsOneWidget);
-    await tapVisible(addMilk);
-    expect(find.text('2 ítems'), findsOneWidget);
-
-    await tapVisible(cartTab);
-    expect(title('Carrito'), findsOneWidget);
-    expect(find.text('2 unidades'), findsOneWidget);
-    await tapVisible(find.byTooltip('Volver al catálogo'));
-    expect(title('Catálogo'), findsOneWidget);
-    expect(find.text('2 ítems'), findsOneWidget);
-
-    await tapVisible(cartTab);
-    await tapVisible(find.byTooltip('Quitar Leche evaporada'));
-    expect(find.text('1 unidad'), findsOneWidget);
-    expect(find.text('1 ítem'), findsOneWidget);
-
-    final review = find.widgetWithText(FilledButton, 'Revisar pedido');
-    await tester.scrollUntilVisible(review, 120);
-    await tapVisible(review);
-    const phone = String.fromEnvironment('STORE_WHATSAPP');
-    if (phone == '12025550123') {
-      final launcher = _RecordingUrlLauncher();
-      final original = UrlLauncherPlatform.instance;
-      UrlLauncherPlatform.instance = launcher;
-      addTearDown(() => UrlLauncherPlatform.instance = original);
-
-      await tapVisible(find.widgetWithText(FilledButton, 'Abrir WhatsApp'));
-      expect(launcher.openedUrl?.host, 'wa.me');
-      expect(launcher.openedUrl?.path, '/$phone');
-      expect(
-        launcher.openedUrl?.queryParameters['text'],
-        contains('1 unidad de Leche evaporada'),
-      );
-      await tapVisible(review);
-    }
-    await tapVisible(find.widgetWithText(TextButton, 'Copiar pedido'));
-    expect(copiedOrder, contains('1 unidad de Leche evaporada'));
-    expect(copiedOrder, contains('S/ 4.20'));
-
-    await tester.binding.handlePopRoute();
+    await tester.enterText(find.byType(TextField), 'arroz');
+    await tester.tap(find.byTooltip('Agregar Arroz a granel'));
     await tester.pumpAndSettle();
-    expect(title('Catálogo'), findsOneWidget);
+
+    final context = tester.element(find.byType(TextField));
+    expect(Theme.of(context).brightness, Brightness.light);
+    tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
+    await tester.pumpAndSettle();
+    expect(Theme.of(context).brightness, Brightness.dark);
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller!.text,
+      'arroz',
+    );
+    expect(find.text('Leche evaporada'), findsNothing);
     expect(find.text('1 ítem'), findsOneWidget);
+
+    await tester.tap(find.text('Carrito'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Revisar pedido'));
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining('1 kg de Arroz a granel', findRichText: true),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 
@@ -246,6 +296,7 @@ void main() {
 
       expect(find.text('S/ 9.60'), findsOneWidget);
       expect(find.text('S/ 4.20'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('S/ 13.80'), 100);
       expect(find.text('S/ 13.80'), findsOneWidget);
     },
   );
