@@ -112,7 +112,9 @@ void main() {
             launcher.openedUrl?.queryParameters['text'],
             contains('1 unidad de Leche evaporada'),
           );
-          await tapVisible(review);
+          expect(title('Catálogo'), findsOneWidget);
+          expect(find.text('0 ítems'), findsOneWidget);
+          return;
         }
         await tapVisible(find.widgetWithText(TextButton, 'Copiar pedido'));
         expect(copiedOrder, contains('1 unidad de Leche evaporada'));
